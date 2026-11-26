@@ -22,15 +22,13 @@ from pathlib import Path
 
 from .models import PASS, FAIL, WARN, INFO, make
 
-DATA = Path(__file__).resolve().parent / "data" / "os_eol.json"
+from . import eol as _eol
+
 WARN_DAYS = 180
 
 
 def _os_rules():
-    try:
-        return json.loads(DATA.read_text(encoding="utf-8")).get("rules", [])
-    except Exception:
-        return []
+    return _eol.load_rules()
 
 
 def os_eol(os_text: str, today=None):
@@ -60,6 +58,10 @@ def check_vm(vm: dict, today=None):
     add("CLD-002", "SSH/RDP not open to the internet (0.0.0.0/0)", FAIL if ports else PASS,
         ", ".join(ports) or "none open", "none",
         "Restrict security group / NSG / firewall rules for 22 and 3389 to trusted source ranges.")
+
+    if vm.get("no_nsg"):
+        add("CLD-005", "Public IP protected by a network security group", WARN, "public IP with no NIC or subnet NSG",
+            "NSG on NIC or subnet", "Attach an NSG that restricts inbound traffic.")
 
     # ---- encryption
     enc = vm.get("disk_encrypted")
@@ -116,13 +118,18 @@ def check_vm(vm: dict, today=None):
     # ---- patches
     mc, mo = vm.get("missing_critical"), vm.get("missing_other")
     if mc is None and mo is None:
-        add("CLD-PATCH", "Missing OS patches", WARN, "patch state unavailable", "assessment enabled",
-            {"AWS": "Enable SSM Agent + Patch Manager scans.", "Azure": "Enable Azure Update Manager periodic assessment.",
-             "GCP": "Enable VM Manager (OS Config) patch management."}.get(p, ""), cat="PATCH")
+        hint = {"AWS": "Install/enable the SSM Agent with an instance profile (AmazonSSMManagedInstanceCore) for Patch Manager, "
+                       "or enable Amazon Inspector for agentless package scanning.",
+                "Azure": "Enable Azure Update Manager periodic assessment.",
+                "GCP": "Enable VM Manager (OS Config agent) on the instance/project."}.get(p, "")
+        why = ("not managed by SSM and no Inspector data" if (p == "AWS" and vm.get("ssm_managed") is False)
+               else "patch state unavailable")
+        add("CLD-PATCH", "Missing OS patches", WARN, why, "assessment enabled", hint, cat="PATCH")
     else:
         mc, mo = mc or 0, mo or 0
         status = FAIL if mc else (WARN if mo else PASS)
-        add("CLD-PATCH", "Missing OS patches", status, f"{mc} critical/security, {mo} other missing", "0 missing",
+        src = f" [{vm['patch_source']}]" if vm.get("patch_source") else ""
+        add("CLD-PATCH", "Missing OS patches", status, f"{mc} critical/security, {mo} other{src}", "0 missing",
             "Apply the pending patches (Patch Manager / Update Manager / VM Manager patch job).", cat="PATCH")
     return out
 

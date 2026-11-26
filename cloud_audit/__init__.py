@@ -27,6 +27,10 @@ def run_cloud_scan(provider, params, log=lambda m: None):
     else:
         raise ValueError(f"unknown provider {provider}")
     results = checks.check_all(vms)
+    if params.get("guest_scan"):
+        from . import guest
+        log(f"Running READ-ONLY in-guest audit on {len(vms)} VMs ...")
+        results += guest.run_guest_audit(provider, vms, params, log)
     log(f"{len(vms)} VMs audited, {len(results)} checks")
     meta = {"target": target, "type": f"{provider.upper()} cloud VMs", "product": f"{len(vms)} VMs", "build": "n/a"}
     return results, meta

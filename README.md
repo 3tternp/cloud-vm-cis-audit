@@ -1,38 +1,66 @@
 # Cloud VM CIS, EOL & Patch Auditor
 
-[![tests](https://github.com/3tternp/cloud-vm-cis-audit/actions/workflows/tests.yml/badge.svg)](https://github.com/3tternp/cloud-vm-cis-audit/actions/workflows/tests.yml) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![access: read-only](https://img.shields.io/badge/access-read--only-informational)
+[![tests](https://github.com/3tternp/cloud-vm-cis-audit/actions/workflows/tests.yml/badge.svg)](https://github.com/3tternp/cloud-vm-cis-audit/actions/workflows/tests.yml) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![access: read-only by default](https://img.shields.io/badge/access-read--only%20by%20default-informational)
 
-Read-only audit of **AWS EC2, Azure VMs and GCP Compute Engine** instances: CIS-style configuration checks, guest-OS end of support, and missing patches. It uses your existing cloud login; no keys are entered or stored. Companion to [vmware-vcenter-esxi-cis-audit](https://github.com/3tternp/vmware-vcenter-esxi-cis-audit).
+Audit of **AWS EC2, Azure VMs and GCP Compute Engine** instances: CIS-style configuration checks, guest-OS end of support, missing patches, and an optional in-guest hardening scan. It uses your existing cloud login; no keys are entered or stored. Companion to [vmware-vcenter-esxi-cis-audit](https://github.com/3tternp/vmware-vcenter-esxi-cis-audit).
 
 ## Install and run
 ```powershell
 pip install -r requirements.txt
+python cloud_audit_cli.py --cloud aws --check-access --regions us-east-1     # 1) see which APIs your credentials can call
 python cloud_audit_cli.py --cloud aws --regions us-east-1,eu-west-1 [--profile myprofile]
 python cloud_audit_cli.py --cloud azure --subscription <subscription-id>     # after: az login
 python cloud_audit_cli.py --cloud gcp --project <project-id>                  # after: gcloud auth application-default login
+python cloud_audit_cli.py --update-eol                                        # refresh guest-OS EOL dates from endoflife.date
 ```
-Writes `cloud_audit.html`, `.csv` and `.json` (use `--out` to change the prefix). Requires Python 3.10+. Minimum access: AWS read-only EC2 + SSM Describe*, Azure Reader, GCP `roles/compute.viewer`.
+Writes `cloud_audit.html`, `.csv` and `.json` (`--out` changes the prefix). Requires Python 3.10+.
 
 ## Checks
 | ID | Check | Providers |
 |---|---|---|
 | CLD-001 | No public IP attached | all |
-| CLD-002 | SSH/RDP not open to the internet | all |
+| CLD-002 | SSH/RDP not open to the internet (firewall rules evaluated by priority, deny rules honoured) | all |
+| CLD-005 | Public IP protected by an NSG | Azure |
 | CLD-003/004 | Disks encrypted; customer-managed keys / encryption at host (L2) | all |
 | CLD-010 | IMDSv2 required | AWS |
 | CLD-020..022 | Secure Boot, vTPM, integrity monitoring (L2) | Azure, GCP |
 | CLD-030..033 | Block project SSH keys, OS Login, serial console off, no default SA with full API access | GCP |
-| CLD-EOL | Guest OS end of support (`cloud_audit/data/os_eol.json`) | all |
-| CLD-PATCH | Missing OS patches (SSM Patch Manager, Azure Update Manager; GCP unknown) | all |
+| CLD-EOL | Guest OS end of support | all |
+| CLD-PATCH | Missing OS patches, with the data source shown | all |
+| GUEST-* | In-guest hardening (opt-in): SSH, accounts, firewall, auditd, time sync, ASLR, SELinux/AppArmor, pending security updates; Windows firewall, SMBv1, Defender, NLA, UAC, password policy, hotfix age | AWS, Azure |
+
+### How patch data is obtained
+| Provider | Source | Without it |
+|---|---|---|
+| AWS | SSM Patch Manager; **fallback: Amazon Inspector** package findings (agentless); instances in neither are listed as "not managed by SSM" with the fix | WARN with remediation |
+| Azure | Azure Update Manager assessment | WARN |
+| GCP | VM Manager inventory + vulnerability report (needs `google-cloud-os-config`) | WARN (unknown, never "0 missing") |
+
+### Network exposure
+Azure traffic must pass both the subnet NSG and the NIC NSG (intersection), first matching rule by priority wins. GCP VPC firewall rules are ordered by priority with deny honoured. AWS security groups are allow-only. Hierarchical GCP firewall policies and AWS network ACLs are not evaluated.
+
+### OS end-of-support data
+`cloud_audit/data/os_eol.json` ships with dates compiled on its `verified` date. `--update-eol` rebuilds the rules from endoflife.date into `~/.cloud_audit/os_eol.json` (takes precedence; falls back per product if offline). The CLI warns when the data is older than 180 days. Unrecognised OS strings are reported as INFO, never silently passed.
+
+## In-guest scan (opt-in, `--guest-scan`)
+Runs the bundled scripts in [`cloud_audit/guest/`](cloud_audit/guest) inside running VMs through the provider agent: **AWS SSM Run Command** and **Azure Run Command**. The scripts are short, read-only (a test asserts they contain no mutating commands) and print `CIS|id|STATUS|detail` lines. The CLI shows what will happen and asks you to type `yes` (or pass `--yes`). Review the scripts before enabling.
+
+Needs more than read-only access: AWS `ssm:SendCommand` + `ssm:GetCommandInvocation`, Azure `Microsoft.Compute/virtualMachines/runCommand/action` (e.g. Virtual Machine Contributor). GCP has no agentless execution channel here, so GCP VMs are skipped. This is a focused CIS-aligned subset, not a full CIS-CAT scan.
+
+## Minimum read-only access
+AWS: `ec2:Describe{Instances,SecurityGroups,Volumes,Images}`, `ssm:DescribeInstanceInformation`, `ssm:DescribeInstancePatchStates`, optional `inspector2:ListFindings`. Azure: Reader. GCP: `roles/compute.viewer` (+ `roles/osconfig.inventoryViewer`, `roles/osconfig.vulnerabilityReportViewer` for patch data).
 
 ## Scheduling
 [docs/examples/cloud-audit-aws.yml](docs/examples/cloud-audit-aws.yml) is a GitHub Actions example (OIDC, no stored keys). Copy it to `.github/workflows/` to enable it.
 
-## Limits
-- OS EOL dates are best-effort; verify them against vendor lifecycle pages and edit the JSON.
-- Azure checks NIC-level NSGs only (not subnet NSGs). EC2 patch data requires the SSM agent. GCP patch state is not collected.
-- VM configuration level only, not an in-guest CIS OS scan.
-- Not yet run against real cloud accounts; covered by offline tests (`python tests/test_cloud.py`).
+## Testing and what is not proven
+```powershell
+python tests/test_cloud.py        # checks, network rules, patch logic, guest parser, EOL rule builder
+python tests/test_collectors.py   # each collector against stub SDKs
+```
+Both run in CI without any cloud SDK or credentials. They prove the logic and call sequencing, **not** that the live APIs return exactly these shapes; this tool has not yet run against real AWS, Azure or GCP accounts. Run `--check-access` and a first scan in a non-production account, and report anything that differs.
+
+Remaining limits: Azure patch data requires an Update Manager assessment; AWS network ACLs and GCP hierarchical policies are not evaluated; the in-guest scan is a subset of CIS controls.
 
 ## License
 [MIT](LICENSE)

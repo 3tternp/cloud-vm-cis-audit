@@ -1,7 +1,8 @@
 """GCP Compute Engine collector (read-only). Uses Application Default Credentials
 (gcloud auth application-default login, workload identity, service account).
 
-Role: roles/compute.viewer is sufficient. Patch state needs VM Manager and is reported as unknown here.
+Role: roles/compute.viewer is sufficient. Patch state comes from VM Manager (roles/osconfig.inventoryViewer + vulnerabilityReportViewer);
+without it patch state is reported as unknown.
 """
 from __future__ import annotations
 
@@ -17,22 +18,22 @@ def _truthy(v):
 
 
 def firewall_open_ports(inst, firewalls):
+    """Management ports reachable from the internet. VPC firewall rules are evaluated by priority
+    (lowest number first; a matching deny closes the port). Hierarchical policies are not evaluated."""
     net = inst.network_interfaces[0].network.split("/")[-1] if inst.network_interfaces else "default"
     tags = set(inst.tags.items) if inst.tags and inst.tags.items else set()
+    rules = [f for f in firewalls if not f.get("disabled") and f["direction"] == "INGRESS" and f["network"] == net
+             and ("0.0.0.0/0" in f["source_ranges"] or "::/0" in f["source_ranges"])
+             and (not f["target_tags"] or set(f["target_tags"]) & tags)]
+    rules.sort(key=lambda f: (f.get("priority", 1000), 0 if f.get("action") == "deny" else 1))  # deny wins ties
     ports = set()
-    for fw in firewalls:
-        if fw.get("disabled") or fw["direction"] != "INGRESS" or fw["network"] != net:
-            continue
-        if "0.0.0.0/0" not in fw["source_ranges"] and "::/0" not in fw["source_ranges"]:
-            continue
-        if fw["target_tags"] and not (set(fw["target_tags"]) & tags):
-            continue
-        for proto, prts in fw["allowed"]:
-            if proto not in ("tcp", "all"):
-                continue
-            for mp in MGMT:
-                if proto == "all" or not prts or any(_hit(p, mp) for p in prts):
+    for mp in MGMT:
+        for f in rules:
+            if any(proto in ("all", "tcp") and (proto == "all" or not prts or any(_hit(p, mp) for p in prts))
+                   for proto, prts in f["rules"]):
+                if f.get("action", "allow") == "allow":
                     ports.add(str(mp))
+                break
     return sorted(ports)
 
 
@@ -43,7 +44,7 @@ def _hit(rng, port):
     return rng.isdigit() and int(rng) == port
 
 
-def normalize(inst, zone, firewalls):
+def normalize(inst, zone, firewalls, patch=None):
     md = _meta(inst)
     sh = inst.shielded_instance_config
     sas = inst.service_accounts or []
@@ -65,8 +66,30 @@ def normalize(inst, zone, firewalls):
         "os_login": _truthy(md.get("enable-oslogin")),
         "serial_port_enabled": _truthy(md.get("serial-port-enable")),
         "default_sa_full_access": default_full,
-        "missing_critical": None, "missing_other": None,
+        "missing_critical": patch[0] if patch else None, "missing_other": patch[1] if patch else None,
+        "patch_source": "VM Manager (OS Config)" if patch else None,
+        "os_family": "windows" if "windows" in licenses.lower() else "linux",
     }
+
+
+def osconfig_patch(client, osconfig_v1, project, zone, instance_id):
+    """(critical/high vulnerabilities, other available updates) from VM Manager, or None if unavailable
+    (VM Manager not enabled / agent not reporting / permission missing)."""
+    base = f"projects/{project}/locations/{zone}/instances/{instance_id}"
+    try:
+        inv = client.get_inventory(request={"name": base + "/inventory", "view": osconfig_v1.InventoryView.FULL})
+    except Exception:
+        return None
+    updates = sum(1 for it in inv.items.values()
+                  if "AVAILABLE" in str(getattr(it, "type_", getattr(it, "type", ""))).upper())
+    crit = 0
+    try:
+        rep = client.get_vulnerability_report(request={"name": base + "/vulnerabilityReport"})
+        crit = sum(1 for v in rep.vulnerabilities
+                   if str(getattr(getattr(v, "details", None), "severity", "")).upper() in ("CRITICAL", "HIGH"))
+    except Exception:
+        pass
+    return crit, max(updates - crit, 0)
 
 
 def collect(project, log=lambda m: None):
@@ -76,12 +99,22 @@ def collect(project, log=lambda m: None):
         raise RuntimeError("google-cloud-compute is required: pip install -r requirements-cloud.txt") from e
     fws = []
     for f in compute_v1.FirewallsClient().list(project=project):
+        deny = bool(f.denied)
         fws.append({"disabled": f.disabled, "direction": f.direction, "network": f.network.split("/")[-1],
                     "source_ranges": list(f.source_ranges), "target_tags": list(f.target_tags),
-                    "allowed": [(a.I_p_protocol, list(a.ports)) for a in f.allowed]})
+                    "priority": f.priority, "action": "deny" if deny else "allow",
+                    "rules": [(a.I_p_protocol, list(a.ports)) for a in (f.denied if deny else f.allowed)]})
+    osc = osv = None
+    try:
+        from google.cloud import osconfig_v1 as osv
+        osc = osv.OsConfigZonalServiceClient()
+    except ImportError:
+        log("GCP: google-cloud-os-config not installed; patch state will be reported as unknown")
     vms = []
     for zone_path, scoped in compute_v1.InstancesClient().aggregated_list(project=project):
         for inst in scoped.instances:
             log(f"GCP: {inst.name}")
-            vms.append(normalize(inst, zone_path.split("/")[-1], fws))
+            zone = zone_path.split("/")[-1]
+            patch = osconfig_patch(osc, osv, project, zone, inst.id) if osc and inst.status == "RUNNING" else None
+            vms.append(normalize(inst, zone, fws, patch))
     return vms

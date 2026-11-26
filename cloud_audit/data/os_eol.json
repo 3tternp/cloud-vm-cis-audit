@@ -1,28 +1,121 @@
 {
-  "_comment": "Guest OS end-of-support dates (standard/mainstream support unless noted). Best-effort; verify with each vendor and edit as needed. First matching rule wins, so keep specific patterns before general ones.",
-  "rules": [
-    {"name": "Windows Server 2008 R2", "match": "windows.*2008\\s*r2", "eol": "2020-01-14"},
-    {"name": "Windows Server 2008", "match": "windows.*2008", "eol": "2020-01-14"},
-    {"name": "Windows Server 2012 R2", "match": "windows.*2012\\s*r2", "eol": "2023-10-10"},
-    {"name": "Windows Server 2012", "match": "windows.*2012", "eol": "2023-10-10"},
-    {"name": "Windows Server 2016", "match": "windows.*2016", "eol": "2027-01-12"},
-    {"name": "Windows Server 2019", "match": "windows.*2019", "eol": "2029-01-09"},
-    {"name": "Windows Server 2022", "match": "windows.*2022", "eol": "2031-10-14"},
-    {"name": "Ubuntu 16.04", "match": "ubuntu.*(16\\.04|1604|xenial)", "eol": "2021-04-30"},
-    {"name": "Ubuntu 18.04", "match": "ubuntu.*(18\\.04|1804|bionic)", "eol": "2023-05-31"},
-    {"name": "Ubuntu 20.04", "match": "ubuntu.*(20\\.04|2004|focal)", "eol": "2025-05-31"},
-    {"name": "Ubuntu 22.04", "match": "ubuntu.*(22\\.04|2204|jammy)", "eol": "2027-06-01"},
-    {"name": "Ubuntu 24.04", "match": "ubuntu.*(24\\.04|2404|noble)", "eol": "2029-05-31"},
-    {"name": "CentOS 6", "match": "centos.*\\b6", "eol": "2020-11-30"},
-    {"name": "CentOS 7", "match": "centos.*\\b7", "eol": "2024-06-30"},
-    {"name": "CentOS 8", "match": "centos.*\\b8", "eol": "2021-12-31"},
-    {"name": "RHEL 7", "match": "(rhel|red\\s*hat).*\\b7", "eol": "2024-06-30"},
-    {"name": "RHEL 8", "match": "(rhel|red\\s*hat).*\\b8", "eol": "2029-05-31"},
-    {"name": "RHEL 9", "match": "(rhel|red\\s*hat).*\\b9", "eol": "2032-05-31"},
-    {"name": "Debian 10", "match": "debian.*(\\b10\\b|buster)", "eol": "2024-06-30"},
-    {"name": "Debian 11", "match": "debian.*(\\b11\\b|bullseye)", "eol": "2026-08-31"},
-    {"name": "Debian 12", "match": "debian.*(\\b12\\b|bookworm)", "eol": "2028-06-30"},
-    {"name": "Amazon Linux 2", "match": "amazon.*linux.*(\\b2\\b|amzn2)", "eol": "2026-06-30"},
-    {"name": "Amazon Linux 2023", "match": "amazon.*linux.*(2023|al2023)", "eol": "2029-06-30"}
-  ]
+ "_comment": "Guest OS end-of-support dates compiled from memory on the 'verified' date; refresh with --update-eol (endoflife.date) and verify against vendor pages.",
+ "rules": [
+  {
+   "name": "Windows Server 2008 R2",
+   "match": "windows.*2008\\s*r2",
+   "eol": "2020-01-14"
+  },
+  {
+   "name": "Windows Server 2008",
+   "match": "windows.*2008",
+   "eol": "2020-01-14"
+  },
+  {
+   "name": "Windows Server 2012 R2",
+   "match": "windows.*2012\\s*r2",
+   "eol": "2023-10-10"
+  },
+  {
+   "name": "Windows Server 2012",
+   "match": "windows.*2012",
+   "eol": "2023-10-10"
+  },
+  {
+   "name": "Windows Server 2016",
+   "match": "windows.*2016",
+   "eol": "2027-01-12"
+  },
+  {
+   "name": "Windows Server 2019",
+   "match": "windows.*2019",
+   "eol": "2029-01-09"
+  },
+  {
+   "name": "Windows Server 2022",
+   "match": "windows.*2022",
+   "eol": "2031-10-14"
+  },
+  {
+   "name": "Ubuntu 16.04",
+   "match": "ubuntu.*(16\\.04|1604|xenial)",
+   "eol": "2021-04-30"
+  },
+  {
+   "name": "Ubuntu 18.04",
+   "match": "ubuntu.*(18\\.04|1804|bionic)",
+   "eol": "2023-05-31"
+  },
+  {
+   "name": "Ubuntu 20.04",
+   "match": "ubuntu.*(20\\.04|2004|focal)",
+   "eol": "2025-05-31"
+  },
+  {
+   "name": "Ubuntu 22.04",
+   "match": "ubuntu.*(22\\.04|2204|jammy)",
+   "eol": "2027-06-01"
+  },
+  {
+   "name": "Ubuntu 24.04",
+   "match": "ubuntu.*(24\\.04|2404|noble)",
+   "eol": "2029-05-31"
+  },
+  {
+   "name": "CentOS 6",
+   "match": "centos.*\\b6",
+   "eol": "2020-11-30"
+  },
+  {
+   "name": "CentOS 7",
+   "match": "centos.*\\b7",
+   "eol": "2024-06-30"
+  },
+  {
+   "name": "CentOS 8",
+   "match": "centos.*\\b8",
+   "eol": "2021-12-31"
+  },
+  {
+   "name": "RHEL 7",
+   "match": "(rhel|red\\s*hat).*\\b7",
+   "eol": "2024-06-30"
+  },
+  {
+   "name": "RHEL 8",
+   "match": "(rhel|red\\s*hat).*\\b8",
+   "eol": "2029-05-31"
+  },
+  {
+   "name": "RHEL 9",
+   "match": "(rhel|red\\s*hat).*\\b9",
+   "eol": "2032-05-31"
+  },
+  {
+   "name": "Debian 10",
+   "match": "debian.*(\\b10\\b|buster)",
+   "eol": "2024-06-30"
+  },
+  {
+   "name": "Debian 11",
+   "match": "debian.*(\\b11\\b|bullseye)",
+   "eol": "2026-08-31"
+  },
+  {
+   "name": "Debian 12",
+   "match": "debian.*(\\b12\\b|bookworm)",
+   "eol": "2028-06-30"
+  },
+  {
+   "name": "Amazon Linux 2",
+   "match": "amazon.*linux.*(\\b2\\b|amzn2)",
+   "eol": "2026-06-30"
+  },
+  {
+   "name": "Amazon Linux 2023",
+   "match": "amazon.*linux.*(2023|al2023)",
+   "eol": "2029-06-30"
+  }
+ ],
+ "verified": "2026-11-26"
 }

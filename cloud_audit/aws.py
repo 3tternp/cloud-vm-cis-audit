@@ -2,7 +2,8 @@
 (env vars, ~/.aws, SSO, instance role); nothing is entered into or stored by this tool.
 
 Needs: ec2:DescribeInstances/Volumes/SecurityGroups/Images, ssm:DescribeInstanceInformation,
-ssm:DescribeInstancePatchStates (all read-only).
+ssm:DescribeInstancePatchStates, and optionally inspector2:ListFindings
+(agentless patch fallback when the SSM agent is absent). All read-only.
 """
 from __future__ import annotations
 
@@ -24,7 +25,7 @@ def _open_ports(sg_list):
     return sorted(ports)
 
 
-def normalize(inst, sgs, vols, ssm_info, ssm_patch, image_name, region):
+def normalize(inst, sgs, vols, ssm_info, ssm_patch, image_name, region, inspector=None):
     name = next((t["Value"] for t in inst.get("Tags", []) if t["Key"] == "Name"), inst["InstanceId"])
     own_sgs = [sgs[g["GroupId"]] for g in inst.get("SecurityGroups", []) if g["GroupId"] in sgs]
     attached = [vols[b["Ebs"]["VolumeId"]] for b in inst.get("BlockDeviceMappings", [])
@@ -33,6 +34,14 @@ def normalize(inst, sgs, vols, ssm_info, ssm_patch, image_name, region):
         or " ".join(filter(None, [image_name, inst.get("PlatformDetails")]))
     mo = inst.get("MetadataOptions", {})
     pat = ssm_patch
+    if pat is not None:
+        crit = pat.get("SecurityNonCompliantCount", 0) + pat.get("CriticalNonCompliantCount", 0)
+        other, src = pat.get("OtherNonCompliantCount", 0), "SSM Patch Manager"
+    elif inspector is not None:
+        (crit, other), src = inspector, "Amazon Inspector (vulnerable packages)"
+    else:
+        crit = other = src = None
+    windows = (ssm_info.get("PlatformType") == "Windows") or inst.get("Platform") == "windows"
     return {
         "provider": "AWS", "id": inst["InstanceId"], "name": name, "region": region,
         "state": inst.get("State", {}).get("Name"), "os": os_text,
@@ -41,9 +50,27 @@ def normalize(inst, sgs, vols, ssm_info, ssm_patch, image_name, region):
         "disk_encrypted": all(v.get("Encrypted") for v in attached) if attached else None,
         "disk_cmk": None,
         "imdsv2_required": (mo.get("HttpTokens") == "required") if mo else None,
-        "missing_critical": None if pat is None else pat.get("SecurityNonCompliantCount", 0) + pat.get("CriticalNonCompliantCount", 0),
-        "missing_other": None if pat is None else pat.get("OtherNonCompliantCount", 0),
+        "missing_critical": crit, "missing_other": other, "patch_source": src,
+        "ssm_managed": bool(ssm_info), "os_family": "windows" if windows else "linux",
     }
+
+
+def _inspector_counts(insp, instance_id):
+    """(critical+high, other) active package-vulnerability findings, or None if Inspector is unavailable."""
+    crit = other = 0
+    try:
+        flt = {"resourceId": [{"comparison": "EQUALS", "value": instance_id}],
+               "findingStatus": [{"comparison": "EQUALS", "value": "ACTIVE"}],
+               "findingType": [{"comparison": "EQUALS", "value": "PACKAGE_VULNERABILITY"}]}
+        for page in insp.get_paginator("list_findings").paginate(filterCriteria=flt):
+            for f in page.get("findings", []):
+                if f.get("severity") in ("CRITICAL", "HIGH"):
+                    crit += 1
+                else:
+                    other += 1
+        return crit, other
+    except Exception:
+        return None
 
 
 def collect(regions=None, profile=None, log=lambda m: None):
@@ -81,7 +108,16 @@ def collect(regions=None, profile=None, log=lambda m: None):
                           for im in ec2.describe_images(ImageIds=img_ids)["Images"]}
             except Exception:
                 pass
+        insp = None
+        if any(i["InstanceId"] not in patch for i in insts):
+            try:  # agentless fallback when SSM patch data is missing
+                insp = session.client("inspector2", region_name=region)
+            except Exception:
+                insp = None
         for i in insts:
-            vms.append(normalize(i, sgs, vols, info.get(i["InstanceId"], {}), patch.get(i["InstanceId"]),
-                                 images.get(i["ImageId"], ""), region))
+            iid = i["InstanceId"]
+            fallback = (_inspector_counts(insp, iid)
+                        if (insp is not None and iid not in patch and i["State"]["Name"] == "running") else None)
+            vms.append(normalize(i, sgs, vols, info.get(iid, {}), patch.get(iid),
+                                 images.get(i["ImageId"], ""), region, fallback))
     return vms
