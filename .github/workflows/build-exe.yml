@@ -1,0 +1,42 @@
+name: build-exe
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write   # needed only to attach the exe to a GitHub release on tag pushes
+
+jobs:
+  windows-exe:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build CloudVMAuditor.exe
+        run: powershell -ExecutionPolicy Bypass -File build_exe.ps1
+      - name: Smoke test (starts, then exits)
+        shell: pwsh
+        run: |
+          $p = Start-Process dist\CloudVMAuditor.exe -PassThru
+          Start-Sleep -Seconds 12
+          if ($p.HasExited) { throw "exe exited early with code $($p.ExitCode)" }
+          Stop-Process -Id $p.Id -Force
+      - name: SHA-256
+        shell: pwsh
+        run: (Get-FileHash dist\CloudVMAuditor.exe -Algorithm SHA256).Hash | Tee-Object dist\CloudVMAuditor.exe.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CloudVMAuditor-windows
+          path: |
+            dist/CloudVMAuditor.exe
+            dist/CloudVMAuditor.exe.sha256
+      - name: Attach to release (tag builds only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${{ github.ref_name }}" dist/CloudVMAuditor.exe dist/CloudVMAuditor.exe.sha256 --generate-notes

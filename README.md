@@ -20,6 +20,15 @@ python cloud_audit_gui.py
 3. Read the result cards (VMs, failed, warnings, passed, score). **Findings** has status/type filters, search, and a "how to fix" panel for the selected row; **By VM** ranks machines by failures (double-click to drill in); **Log** shows progress.
 4. Export HTML, CSV or JSON. **Update EOL data** refreshes guest-OS lifecycle dates. **In-guest scan** is off by default and asks for confirmation. Dark, light and system themes are supported.
 
+### Windows executable
+No Python needed on the target machine: download `CloudVMAuditor.exe` from the [Releases](https://github.com/3tternp/cloud-vm-cis-audit/releases) page (or the `build-exe` workflow artifact) and verify it against the published `.sha256`. It is the same GUI, with the AWS, Azure and GCP SDKs bundled. You still need your own cloud login on that machine (AWS profile/SSO, `az login`, `gcloud auth application-default login`).
+
+Build it yourself (uses an isolated `.venv-build`, your global Python is untouched):
+```powershell
+powershell -ExecutionPolicy Bypass -File build_exe.ps1     # -> dist\CloudVMAuditor.exe
+```
+The exe is unsigned, so Windows SmartScreen may warn on first run ("More info" > "Run anyway"). It is a GUI-only build; use the Python CLI for headless runs. Pushing a tag like `v0.1.0` makes the `build-exe` workflow build the exe and attach it to a GitHub release.
+
 ## Command line
 ```powershell
 pip install -r requirements.txt

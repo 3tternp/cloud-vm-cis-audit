@@ -3,3 +3,7 @@ __pycache__/
 .venv/
 /cloud_audit.*
 /aws_audit.*
+.venv-build/
+build/
+dist/
+*.spec.bak
