@@ -1,0 +1,31 @@
+# EXAMPLE ONLY - copy to .github/workflows/ to enable. Not active from this folder.
+# Scheduled, read-only AWS EC2 audit using GitHub OIDC (no long-lived keys).
+# Prerequisites: an IAM role trusting this repo's OIDC provider with read-only EC2 + SSM Describe* permissions;
+# store its ARN in the repository variable AWS_AUDIT_ROLE_ARN.
+# Azure: use azure/login with OIDC + `--cloud azure --subscription <id>` (Reader role).
+# GCP:   use google-github-actions/auth with workload identity + `--cloud gcp --project <id>` (roles/compute.viewer).
+name: cloud-audit-aws
+on:
+  schedule: [{cron: "0 5 * * 1"}]
+  workflow_dispatch:
+permissions:
+  id-token: write
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - run: pip install -r requirements.txt
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_AUDIT_ROLE_ARN }}
+          aws-region: us-east-1
+      - run: python cloud_audit_cli.py --cloud aws --regions us-east-1,eu-west-1 --out aws_audit
+      - uses: actions/upload-artifact@v4
+        with:
+          name: aws-audit-report
+          path: aws_audit.*
+          retention-days: 30
