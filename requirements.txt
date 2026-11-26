@@ -4,3 +4,4 @@ azure-mgmt-compute>=30.0
 azure-mgmt-network>=25.0
 google-cloud-compute>=1.16
 google-cloud-os-config>=1.17
+customtkinter>=5.2

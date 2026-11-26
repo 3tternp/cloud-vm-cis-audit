@@ -4,7 +4,23 @@
 
 Audit of **AWS EC2, Azure VMs and GCP Compute Engine** instances: CIS-style configuration checks, guest-OS end of support, missing patches, and an optional in-guest hardening scan. It uses your existing cloud login; no keys are entered or stored. Companion to [vmware-vcenter-esxi-cis-audit](https://github.com/3tternp/vmware-vcenter-esxi-cis-audit).
 
-## Install and run
+## Desktop GUI
+```powershell
+pip install -r requirements.txt
+python cloud_audit_gui.py
+```
+<p>
+<img src="docs/screenshot_dark.png" width="49%" alt="Dark theme"> <img src="docs/screenshot_light.png" width="49%" alt="Light theme">
+</p>
+
+> Screenshots use **made-up demo data** (`tools/make_screenshot.py`), not a real environment.
+
+1. Pick **AWS**, **Azure** or **GCP** and fill the one or two fields (AWS profile/regions, Azure subscription ID, GCP project ID). No keys or passwords are entered: it uses your existing login (AWS profile/SSO, `az login`, `gcloud auth application-default login`).
+2. Click **Check access** once to see which read-only APIs your credentials can call, then **Run audit**.
+3. Read the result cards (VMs, failed, warnings, passed, score). **Findings** has status/type filters, search, and a "how to fix" panel for the selected row; **By VM** ranks machines by failures (double-click to drill in); **Log** shows progress.
+4. Export HTML, CSV or JSON. **Update EOL data** refreshes guest-OS lifecycle dates. **In-guest scan** is off by default and asks for confirmation. Dark, light and system themes are supported.
+
+## Command line
 ```powershell
 pip install -r requirements.txt
 python cloud_audit_cli.py --cloud aws --check-access --regions us-east-1     # 1) see which APIs your credentials can call
@@ -13,7 +29,7 @@ python cloud_audit_cli.py --cloud azure --subscription <subscription-id>     # a
 python cloud_audit_cli.py --cloud gcp --project <project-id>                  # after: gcloud auth application-default login
 python cloud_audit_cli.py --update-eol                                        # refresh guest-OS EOL dates from endoflife.date
 ```
-Writes `cloud_audit.html`, `.csv` and `.json` (`--out` changes the prefix). Requires Python 3.10+.
+Writes `cloud_audit.html`, `.csv` and `.json` (`--out` changes the prefix). Requires Python 3.10+ (the GUI needs Tkinter, bundled with the standard Windows/macOS installers; on Debian/Ubuntu `sudo apt install python3-tk`).
 
 ## Checks
 | ID | Check | Providers |
@@ -57,6 +73,7 @@ AWS: `ec2:Describe{Instances,SecurityGroups,Volumes,Images}`, `ssm:DescribeInsta
 ```powershell
 python tests/test_cloud.py        # checks, network rules, patch logic, guest parser, EOL rule builder
 python tests/test_collectors.py   # each collector against stub SDKs
+python tests/test_gui_model.py    # GUI filtering / per-VM roll-up logic (headless)
 ```
 Both run in CI without any cloud SDK or credentials. They prove the logic and call sequencing, **not** that the live APIs return exactly these shapes; this tool has not yet run against real AWS, Azure or GCP accounts. Run `--check-access` and a first scan in a non-production account, and report anything that differs.
 
